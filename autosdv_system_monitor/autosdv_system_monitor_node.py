@@ -28,6 +28,13 @@ from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 from nav_msgs.msg import Odometry
 from diagnostic_msgs.msg import DiagnosticArray
 
+# GNSS imports. These three types are referenced by config/monitor_topics.yaml
+# and their packages are already exec_depends, but the node never mapped them,
+# so the entries were skipped at load and the topics read as silent.
+from nmea_msgs.msg import Sentence
+from rtcm_msgs.msg import Message as RtcmMessage
+from ublox_msgs.msg import RxmRTCM
+
 # Vehicle imports
 from autoware_vehicle_msgs.msg import VelocityReport
 from autoware_control_msgs.msg import Control
@@ -336,7 +343,10 @@ class AutoSDVSystemMonitor(Node):
                 'diagnostic_msgs/msg/DiagnosticArray': DiagnosticArray,
                 'autoware_vehicle_msgs/msg/VelocityReport': VelocityReport,
                 'autoware_control_msgs/msg/Control': Control,
-                'rcl_interfaces/msg/Log': Log
+                'rcl_interfaces/msg/Log': Log,
+                'nmea_msgs/msg/Sentence': Sentence,
+                'rtcm_msgs/msg/Message': RtcmMessage,
+                'ublox_msgs/msg/RxmRTCM': RxmRTCM,
             }
 
             for category, topics in topics_config.items():
@@ -347,7 +357,12 @@ class AutoSDVSystemMonitor(Node):
                     msg_type_str = topic_info[0]
                     msg_type = msg_type_map.get(msg_type_str)
                     if msg_type is None:
-                        self.get_logger().warn(f"Unknown message type: {msg_type_str}")
+                        # Not cosmetic: a skipped entry never subscribes, and
+                        # the table then shows the topic as NO DATA whether or
+                        # not anything is publishing it.
+                        self.get_logger().warn(
+                            f"Unknown message type {msg_type_str}; "
+                            f"{topic_info[1]} will not be monitored")
                         continue
 
                     # Extract the topic details
