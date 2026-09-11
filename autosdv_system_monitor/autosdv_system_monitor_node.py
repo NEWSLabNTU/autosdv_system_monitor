@@ -23,7 +23,7 @@ from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from rcl_interfaces.msg import Log
 
 # Sensor imports
-from sensor_msgs.msg import Imu, PointCloud2, Image, CompressedImage, NavSatFix
+from sensor_msgs.msg import Imu, PointCloud2, Image, CompressedImage, NavSatFix, CameraInfo
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
 from nav_msgs.msg import Odometry
 from diagnostic_msgs.msg import DiagnosticArray
@@ -139,9 +139,16 @@ class WebServerThread(threading.Thread):
         @self.app.route('/')
         def index():
             """Serve the main HTML page."""
+            # The mode strip talks to rosbridge from the browser, not through
+            # this process. Only the port is passed: the host has to be whatever
+            # the operator typed to reach this page, because the monitor is
+            # routinely opened from another machine and a hardcoded localhost
+            # would work on the vehicle and fail everywhere else.
             return render_template('monitor.html',
                                  title="AutoSDV System Monitor",
-                                 node_name=self.node.get_name())
+                                 node_name=self.node.get_name(),
+                                 rosbridge_port=self.node.get_parameter(
+                                     'rosbridge_port').value)
 
         @self.app.route('/api/status')
         def status():
@@ -215,6 +222,10 @@ class AutoSDVSystemMonitor(Node):
         self.declare_parameter('report_interval_sec', 5.0)
         self.declare_parameter('web_server_host', 'localhost')
         self.declare_parameter('web_server_port', 8080)
+        # Where the browser reaches rosbridge for the mode availability strip.
+        # This node does not connect to it; the page does. See
+        # templates/monitor.html.
+        self.declare_parameter('rosbridge_port', 9090)
         self.declare_parameter('topics_config_file', '')
 
         # Load topics to monitor from config file
@@ -336,6 +347,7 @@ class AutoSDVSystemMonitor(Node):
                 'sensor_msgs/msg/PointCloud2': PointCloud2,
                 'sensor_msgs/msg/Image': Image,
                 'sensor_msgs/msg/CompressedImage': CompressedImage,
+                'sensor_msgs/msg/CameraInfo': CameraInfo,
                 'sensor_msgs/msg/NavSatFix': NavSatFix,
                 'geometry_msgs/msg/PoseStamped': PoseStamped,
                 'geometry_msgs/msg/PoseWithCovarianceStamped': PoseWithCovarianceStamped,

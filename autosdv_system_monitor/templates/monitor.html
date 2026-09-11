@@ -134,6 +134,133 @@
         .status-UNKNOWN {
             color: #2196F3;
         }
+        /* Mode availability strip. Fed by rosbridge, not by /api/status. */
+        .mode-strip {
+            background: white;
+            border-radius: 5px;
+            padding: 12px 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .mode-strip-head {
+            display: flex;
+            align-items: baseline;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+        .mode-strip-head h2 {
+            font-size: 1.1em;
+            margin: 0;
+        }
+        .mode-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .mode-chip {
+            padding: 6px 12px;
+            border-radius: 14px;
+            font-size: 0.9em;
+            font-weight: bold;
+            color: white;
+            border: 2px solid transparent;
+        }
+        /* Level colours match the .status-* classes above on purpose: one
+           vocabulary across the page. */
+        .mode-ok       { background-color: #4CAF50; }
+        .mode-warn     { background-color: #ff9800; }
+        .mode-error    { background-color: #f44336; }
+        .mode-stale    { background-color: #9e9e9e; }
+        /* Never seen. Distinct from grey STALE, which means "was known, went
+           quiet". An empty outline says "nothing has told us yet", which is
+           what a monitor started before Autoware must show. */
+        .mode-unknown  {
+            background-color: transparent;
+            color: #9e9e9e;
+            border-color: #cfcfcf;
+            font-weight: normal;
+        }
+        /* A mode that is fine now but faulted earlier in the session. */
+        .mode-chip.latched { box-shadow: inset 0 -4px 0 rgba(0,0,0,0.35); }
+        .bridge-state { font-size: 0.85em; }
+        .strip-live {
+            font-size: 0.7em;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: #4CAF50;
+            border: 1px solid #b7dfb9;
+            border-radius: 3px;
+            padding: 1px 5px;
+            cursor: help;
+        }
+        .bridge-up      { color: #4CAF50; }
+        .bridge-down    { color: #f44336; font-weight: bold; }
+        .bridge-connecting { color: #9e9e9e; }
+        .mode-note {
+            font-size: 0.8em;
+            color: #777;
+            margin-top: 8px;
+        }
+        /* Failing paths: which leaf made which mode unavailable. */
+        .fault-paths { margin-top: 12px; }
+        .fault-mode {
+            border-top: 1px solid #eee;
+            padding-top: 8px;
+            margin-top: 8px;
+        }
+        .fault-mode-name {
+            font-weight: bold;
+            color: #f44336;
+        }
+        .fault-cause {
+            margin: 6px 0 0 16px;
+            font-size: 0.9em;
+        }
+        .fault-leaf {
+            font-family: monospace;
+            font-weight: bold;
+        }
+        .fault-msg { color: #555; }
+        /* The chain of graph units between the mode and the leaf. Hidden until
+           expanded: showing all 63 nodes is a wall of green that hides the one
+           red line through it. */
+        .fault-chain {
+            display: none;
+            font-family: monospace;
+            font-size: 0.8em;
+            color: #888;
+            margin-left: 16px;
+        }
+        .expanded .fault-chain { display: block; }
+        .fault-toggle {
+            background: none;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            font-size: 0.75em;
+            padding: 2px 8px;
+            cursor: pointer;
+            color: #555;
+        }
+        /* Faults seen earlier in this session that have since cleared. */
+        .fault-cleared { opacity: 0.65; }
+        .fault-cleared .fault-mode-name { color: #ff9800; }
+        /* Fail-safe timeline: the order things happened in. */
+        .timeline { margin-top: 14px; border-top: 1px solid #eee; padding-top: 10px; }
+        .timeline h3 { font-size: 0.95em; margin: 0 0 6px 0; }
+        .timeline-rows {
+            font-family: monospace;
+            font-size: 0.8em;
+            max-height: 220px;
+            overflow-y: auto;
+        }
+        .tl-row { display: flex; gap: 10px; padding: 2px 0; }
+        .tl-time { color: #999; white-space: nowrap; }
+        .tl-src { color: #555; min-width: 96px; }
+        .tl-val { flex: 1; }
+        .tl-mrm    { color: #d32f2f; font-weight: bold; }
+        .tl-hazard { color: #e65100; }
+        .tl-avail  { color: #1565c0; }
+        .timeline-empty { color: #999; font-size: 0.85em; }
         .refresh-btn {
             background-color: #2196F3;
             color: white;
@@ -151,6 +278,11 @@
             padding: 10px;
             border-radius: 5px;
             overflow-x: auto;
+        }
+        .refresh-scope {
+            font-weight: bold;
+            color: #555;
+            margin-right: 4px;
         }
         .refresh-container {
             text-align: right;
@@ -172,7 +304,41 @@
             </div>
         </header>
         
+        <!-- Mode availability strip. One chip per mode root in Autoware's
+             diagnostic graph, so this answers "can the vehicle still go
+             autonomous" without reading 41 diagnostic rows to work it out. -->
+        <div class="mode-strip">
+            <div class="mode-strip-head">
+                <h2>Operating modes</h2>
+                <span id="bridge-state" class="bridge-state bridge-connecting">connecting to rosbridge...</span>
+                <span class="strip-live" title="Pushed over rosbridge on every change. The Refresh controls below apply to the sensor tables, not to this.">live</span>
+            </div>
+            <div id="mode-chips" class="mode-chips">
+                <span class="mode-chip mode-unknown">no graph yet</span>
+            </div>
+            <div id="mode-note" class="mode-note"></div>
+            <!-- Which leaf made which mode unavailable. Empty when nothing is
+                 wrong, which is the common case and should stay quiet. -->
+            <div id="fault-paths" class="fault-paths"></div>
+            <!-- Fail-safe timeline. An instantaneous view cannot answer "what
+                 happened, in what order" after an incident, which is the
+                 question asked once the vehicle has already stopped. -->
+            <div class="timeline">
+                <h3>Fail-safe timeline</h3>
+                <div id="timeline-rows" class="timeline-rows">
+                    <div class="timeline-empty">nothing recorded yet</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- These controls drive fetchData() and therefore ONLY the sensor
+             tables below. The operating-mode strip above is pushed over
+             rosbridge and is unaffected by them, so the scope is stated: a bar
+             sitting between the two, labelled just "Auto-refresh", reads as
+             governing both, and "Off" would then look like it had frozen the
+             fault display when that display is still live. -->
         <div class="refresh-container">
+            <span class="refresh-scope">Sensor tables below:</span>
             <button id="refresh-btn" class="refresh-btn">Refresh Data</button>
             <span id="auto-refresh-label">Auto-refresh: </span>
             <select id="refresh-interval">
@@ -209,6 +375,413 @@
     </div>
 
     <script>
+    // ===================== Mode availability strip =====================
+    //
+    // Reads Autoware's diagnostic graph over rosbridge and shows one chip per
+    // mode root. Independent of /api/status below: that answers "is this device
+    // publishing", this answers "what does the system still allow".
+    //
+    // Phase 4-O sub-phase O-C. See docs/roadmaps/4-diagnostics-observability.md
+    // in the AutoSDV repo for why each decision here is the way it is.
+    (function () {
+        var PORT = {{ rosbridge_port }};
+        var STRUCT = '/api/system/diagnostics/struct';
+        var STATUS = '/api/system/diagnostics/status';
+
+        // O-E, the fail-safe timeline.
+        //
+        // mrm_state comes from the AD API. hazard_status and per-mode
+        // availability have NO API equivalent and are read from the internal
+        // topics; that is a deliberate exception to the "subscribe the API"
+        // rule, recorded in the phase doc.
+        var MRM    = '/api/fail_safe/mrm_state';
+        var HAZARD = '/system/emergency/hazard_status';
+        var AVAIL  = '/system/operation_mode/availability';
+
+        // MrmState. The behavior enum is marked deprecated in the message file
+        // in favour of ListMrmDescription, but that service returns an EMPTY
+        // list on this deployment: the FailSafeNode takes an `mrm_descriptions`
+        // parameter that nothing here sets. Measured, see the phase doc. So the
+        // enum is what we have, and these names must be revisited on upgrade.
+        var MRM_STATE = {0: 'UNKNOWN', 1: 'NORMAL', 2: 'MRM_OPERATING',
+                         3: 'MRM_SUCCEEDED', 4: 'MRM_FAILED'};
+        var MRM_BEHAVIOR = {0: 'UNKNOWN', 1: 'NONE', 2: 'EMERGENCY_STOP',
+                            3: 'COMFORTABLE_STOP', 4: 'PULL_OVER'};
+        var HAZARD_LEVEL = {0: 'NO_FAULT', 1: 'SAFE_FAULT', 2: 'LATENT_FAULT',
+                            3: 'SINGLE_POINT_FAULT'};
+
+        var MAX_EVENTS = 200;
+        var events = [];        // newest last
+        var lastSeen = {};      // source -> last rendered value, to log changes only
+
+        // DiagnosticStatus levels. STALE is 3.
+        var LEVEL_CLASS = ['mode-ok', 'mode-warn', 'mode-error', 'mode-stale'];
+        var LEVEL_NAME  = ['OK', 'WARN', 'ERROR', 'STALE'];
+
+        // struct arrives once and is latched; status arrives at 10 Hz. They are
+        // joined BY ARRAY INDEX: DiagNodeStatus has no path field at all, so
+        // without the struct the status is a list of levels we cannot name.
+        var graph = null;       // last struct
+        var modeIdx = [];       // indices into graph.nodes that are mode roots
+        var lastStatusMs = 0;
+        var ws = null;
+        var reconnectTimer = null;
+
+        var chipsEl  = document.getElementById('mode-chips');
+        var stateEl  = document.getElementById('bridge-state');
+        var noteEl   = document.getElementById('mode-note');
+        var pathsEl  = document.getElementById('fault-paths');
+        var timelineEl = document.getElementById('timeline-rows');
+
+        var childrenOf = {};    // node index -> child node indices
+        var leavesOf = {};      // node index -> leaf indices
+        var expanded = false;   // show the full unit chain, not just the leaf
+        var lastStatus = null;  // so the expand toggle can re-render in place
+
+        // Worst level seen per mode since this page loaded, and the causes that
+        // went with it.
+        //
+        // This exists because DiagNodeStatus.latch_level does NOT latch on this
+        // vehicle: upstream's graph configures no latching anywhere, so the
+        // field reads 0 even while a node is at ERROR (measured, see the phase
+        // doc). Without retaining it here, a fault that clears before an
+        // operator looks up leaves no trace at all.
+        var history = {};
+
+        function setBridge(cls, text) {
+            stateEl.className = 'bridge-state ' + cls;
+            stateEl.textContent = text;
+        }
+
+        // A page that cannot reach the bridge must not look like a page
+        // reporting no faults. Blank the chips and say why.
+        function bridgeLost(why) {
+            setBridge('bridge-down', why);
+            graph = null; modeIdx = []; lastStatusMs = 0; lastStatus = null;
+            chipsEl.innerHTML = '<span class="mode-chip mode-unknown">no data</span>';
+            pathsEl.innerHTML = '';
+            // The timeline is NOT cleared. It is the record of what happened,
+            // and a bridge drop is the moment that record matters most. Log the
+            // drop as an event instead.
+            note('bridge', 'tl-mrm', 'DISCONNECTED: ' + why);
+            lastSeen = {mrm: undefined, hazard: undefined, available: undefined,
+                        bridge: 'DISCONNECTED: ' + why};
+            noteEl.textContent = 'Mode availability is unknown while the bridge is down. '
+                + 'This is not the same as "no faults".';
+        }
+
+        // Record a change. Only changes: these topics republish at rate, and a
+        // timeline that logs every message is a log, not a timeline.
+        function note(source, cls, value) {
+            if (lastSeen[source] === value) { return; }
+            lastSeen[source] = value;
+            events.push({t: new Date(), source: source, cls: cls, value: value});
+            if (events.length > MAX_EVENTS) { events.shift(); }
+            renderTimeline();
+        }
+
+        function renderTimeline() {
+            if (events.length === 0) {
+                timelineEl.innerHTML = '<div class="timeline-empty">nothing recorded yet</div>';
+                return;
+            }
+            var html = '';
+            // Newest first: after an incident the last thing that happened is
+            // what is being looked for.
+            for (var i = events.length - 1; i >= 0; i--) {
+                var e = events[i];
+                var hh = String(e.t.getHours()).padStart(2, '0');
+                var mm = String(e.t.getMinutes()).padStart(2, '0');
+                var ss = String(e.t.getSeconds()).padStart(2, '0');
+                var ms = String(e.t.getMilliseconds()).padStart(3, '0');
+                html += '<div class="tl-row">'
+                     + '<span class="tl-time">' + hh + ':' + mm + ':' + ss + '.' + ms + '</span>'
+                     + '<span class="tl-src">' + e.source + '</span>'
+                     + '<span class="tl-val ' + e.cls + '">' + esc(e.value) + '</span>'
+                     + '</div>';
+            }
+            timelineEl.innerHTML = html;
+        }
+
+        function connect() {
+            clearTimeout(reconnectTimer);
+            // location.hostname, not localhost: this page is routinely opened
+            // from another machine.
+            ws = new WebSocket('ws://' + location.hostname + ':' + PORT);
+
+            ws.onopen = function () {
+                setBridge('bridge-up', 'rosbridge connected');
+                // No QoS is specified here on purpose. rosbridge derives it per
+                // topic from the publishers, which matters because these two
+                // DISAGREE: struct is RELIABLE + TRANSIENT_LOCAL and status is
+                // BEST_EFFORT + VOLATILE. A hand-rolled subscriber that applied
+                // one profile to both would silently receive nothing on one of
+                // them. Measured in scripts/check/diag_graph_qos.sh.
+                ws.send(JSON.stringify({op: 'subscribe', topic: STRUCT,
+                    type: 'autoware_adapi_v1_msgs/msg/DiagGraphStruct'}));
+                // The UI does not need 10 Hz. throttle_rate is server side, so
+                // the messages are never sent rather than sent and dropped.
+                ws.send(JSON.stringify({op: 'subscribe', topic: STATUS,
+                    type: 'autoware_adapi_v1_msgs/msg/DiagGraphStatus',
+                    throttle_rate: 200, queue_length: 1}));
+                // Timeline sources. Also no QoS: mrm_state is
+                // RELIABLE + TRANSIENT_LOCAL while the other two are VOLATILE,
+                // so a single hand-picked profile would be wrong for one of
+                // them. rosbridge derives each from its publisher.
+                ws.send(JSON.stringify({op: 'subscribe', topic: MRM,
+                    type: 'autoware_adapi_v1_msgs/msg/MrmState'}));
+                ws.send(JSON.stringify({op: 'subscribe', topic: HAZARD,
+                    type: 'autoware_system_msgs/msg/HazardStatusStamped',
+                    throttle_rate: 200, queue_length: 1}));
+                ws.send(JSON.stringify({op: 'subscribe', topic: AVAIL,
+                    type: 'tier4_system_msgs/msg/OperationModeAvailability',
+                    throttle_rate: 200, queue_length: 1}));
+            };
+
+            ws.onmessage = function (ev) {
+                var m;
+                try { m = JSON.parse(ev.data); } catch (e) { return; }
+                if (m.op !== 'publish') { return; }
+                if (m.topic === STRUCT) { onStruct(m.msg); }
+                else if (m.topic === STATUS) { onStatus(m.msg); }
+                else if (m.topic === MRM) {
+                    note('mrm', 'tl-mrm',
+                        (MRM_STATE[m.msg.state] || m.msg.state) + ' / '
+                        + (MRM_BEHAVIOR[m.msg.behavior] || m.msg.behavior));
+                } else if (m.topic === HAZARD) {
+                    var h = m.msg.status || {};
+                    note('hazard', 'tl-hazard',
+                        (HAZARD_LEVEL[h.level] || h.level)
+                        + (h.emergency ? ' emergency' : '')
+                        + (h.emergency_holding ? ' HOLDING' : ''));
+                } else if (m.topic === AVAIL) {
+                    var a = m.msg, on = [];
+                    ['stop', 'autonomous', 'local', 'remote',
+                     'emergency_stop', 'comfortable_stop', 'pull_over'].forEach(function (k) {
+                        if (a[k]) { on.push(k); }
+                    });
+                    note('available', 'tl-avail', on.length ? on.join(' ') : 'NOTHING AVAILABLE');
+                }
+            };
+
+
+            ws.onclose = function () {
+                bridgeLost('rosbridge disconnected, retrying');
+                reconnectTimer = setTimeout(connect, 2000);
+            };
+            ws.onerror = function () { try { ws.close(); } catch (e) {} };
+        }
+
+        function onStruct(msg) {
+            graph = msg;
+            // The chip set comes from the graph, never a hardcoded list of
+            // seven. If Autoware's graph gains or loses a mode, the strip
+            // follows instead of silently omitting it.
+            modeIdx = [];
+            for (var i = 0; i < msg.nodes.length; i++) {
+                if (msg.nodes[i].path.indexOf('/autoware/modes/') === 0) { modeIdx.push(i); }
+            }
+            // links carry parent and child as indices into nodes; diags carry
+            // only a parent index. Build both adjacency maps once per struct.
+            childrenOf = {}; leavesOf = {};
+            for (var k = 0; k < msg.links.length; k++) {
+                var l = msg.links[k];
+                (childrenOf[l.parent] = childrenOf[l.parent] || []).push(l.child);
+            }
+            for (var d = 0; d < msg.diags.length; d++) {
+                var p = msg.diags[d].parent;
+                (leavesOf[p] = leavesOf[p] || []).push(d);
+            }
+            history = {};
+            render(null);
+        }
+
+        // Walk down from a mode root through units that are themselves bad, and
+        // collect the LEAVES that are bad. A leaf is the origin of a fault; a
+        // unit above it has only inherited one.
+        //
+        // Note on is_dependent: it is NOT the inherited-failure marker. It reads
+        // false on every node in this graph, including nodes that plainly
+        // inherited their level (measured). Do not build attribution on it.
+        function causesOf(rootIdx, status) {
+            var out = [], seen = {};
+            function walk(i, chain) {
+                if (seen[i]) { return; }
+                seen[i] = true;
+                // Anonymous inline and/or units have an empty path. Keep them
+                // out of the displayed chain rather than rendering blanks.
+                var here = graph.nodes[i].path
+                    ? chain.concat([graph.nodes[i].path]) : chain;
+                var kids = leavesOf[i] || [];
+                for (var a = 0; a < kids.length; a++) {
+                    var ls = status.diags[kids[a]];
+                    if (ls && ls.level > 0) {
+                        out.push({name: graph.diags[kids[a]].name, level: ls.level,
+                                  message: ls.message || '', chain: here});
+                    }
+                }
+                var cs = childrenOf[i] || [];
+                for (var b = 0; b < cs.length; b++) {
+                    if (status.nodes[cs[b]] && status.nodes[cs[b]].level > 0) {
+                        walk(cs[b], here);
+                    }
+                }
+            }
+            walk(rootIdx, []);
+            return out;
+        }
+
+        function onStatus(msg) {
+            // The aggregator restarting rebuilds the graph and changes its id.
+            // Indexing a new status into an old struct would mislabel every
+            // chip, so drop the struct and ask for it again.
+            if (!graph || graph.id !== msg.id) {
+                if (graph && graph.id !== msg.id) { refetchStruct(); }
+                return;
+            }
+            if (msg.nodes.length !== graph.nodes.length) { refetchStruct(); return; }
+            lastStatusMs = Date.now();
+            lastStatus = msg;
+            render(msg);
+        }
+
+        function refetchStruct() {
+            graph = null; modeIdx = [];
+            chipsEl.innerHTML = '<span class="mode-chip mode-unknown">graph changed, reloading</span>';
+            if (!ws || ws.readyState !== WebSocket.OPEN) { return; }
+            // Re-subscribing is what makes rosbridge re-deliver the latched
+            // struct: it creates a fresh subscription, and the publisher is
+            // transient_local.
+            ws.send(JSON.stringify({op: 'unsubscribe', topic: STRUCT}));
+            ws.send(JSON.stringify({op: 'subscribe', topic: STRUCT,
+                type: 'autoware_adapi_v1_msgs/msg/DiagGraphStruct'}));
+        }
+
+        function render(status) {
+            if (!graph) { return; }
+            if (modeIdx.length === 0) {
+                chipsEl.innerHTML = '<span class="mode-chip mode-unknown">graph has no mode roots</span>';
+                noteEl.textContent = 'The graph was received but contains no /autoware/modes/* units.';
+                return;
+            }
+            var html = '';
+            for (var k = 0; k < modeIdx.length; k++) {
+                var i = modeIdx[k];
+                var name = graph.nodes[i].path.replace('/autoware/modes/', '');
+                var cls, title, latched = '';
+                if (!status) {
+                    // Struct known, no status yet. Not a fault: nothing has
+                    // reported. Must not render as red.
+                    cls = 'mode-unknown'; title = 'awaiting status';
+                } else {
+                    var st = status.nodes[i];
+                    cls = LEVEL_CLASS[st.level] || 'mode-stale';
+                    title = LEVEL_NAME[st.level] || ('level ' + st.level);
+                    if (st.latch_level > 0 && st.level === 0) {
+                        latched = ' latched';
+                        title += ', faulted earlier this session';
+                    }
+                }
+                html += '<span class="mode-chip ' + cls + latched + '" title="'
+                     + graph.nodes[i].path + ' (' + title + ')">' + name + '</span>';
+            }
+            chipsEl.innerHTML = html;
+            noteEl.textContent = status
+                ? (graph.nodes.length + ' nodes, ' + graph.diags.length
+                   + ' leaves. Underline marks a mode that faulted earlier.')
+                : 'Graph received, waiting for the first status message.';
+            renderPaths(status);
+        }
+
+        function esc(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function renderPaths(status) {
+            if (!status) { pathsEl.innerHTML = ''; return; }
+
+            for (var k = 0; k < modeIdx.length; k++) {
+                var i = modeIdx[k];
+                var name = graph.nodes[i].path.replace('/autoware/modes/', '');
+                var lvl = status.nodes[i].level;
+                if (lvl > 0) {
+                    var causes = causesOf(i, status);
+                    // Keep the worst level and the causes seen with it.
+                    if (!history[name] || lvl >= history[name].level) {
+                        history[name] = {level: lvl, causes: causes};
+                    }
+                    history[name].current = true;
+                } else if (history[name]) {
+                    history[name].current = false;
+                }
+            }
+
+            var names = Object.keys(history);
+            if (names.length === 0) {
+                pathsEl.innerHTML = '';
+                return;
+            }
+            names.sort(function (a, b) {
+                // Current faults first, then by severity.
+                if (history[a].current !== history[b].current) { return history[a].current ? -1 : 1; }
+                return history[b].level - history[a].level;
+            });
+
+            var html = '<button class="fault-toggle" id="fault-toggle">'
+                     + (expanded ? 'hide graph paths' : 'show graph paths') + '</button>';
+            for (var n = 0; n < names.length; n++) {
+                var h = history[names[n]];
+                html += '<div class="fault-mode' + (h.current ? '' : ' fault-cleared')
+                     + (expanded ? ' expanded' : '') + '">'
+                     + '<span class="fault-mode-name">' + esc(names[n]) + '</span> '
+                     + (h.current ? 'unavailable' : 'recovered, faulted earlier this session');
+                if (h.causes.length === 0) {
+                    // The mode is bad but no leaf under it is. Worth saying so
+                    // rather than showing an empty list: it means the fault came
+                    // from a unit with no diagnostic beneath it.
+                    html += '<div class="fault-cause">no faulting leaf found beneath this mode</div>';
+                }
+                for (var c = 0; c < h.causes.length; c++) {
+                    var cz = h.causes[c];
+                    html += '<div class="fault-cause">'
+                         + '<span class="fault-leaf">' + esc(cz.name) + '</span> '
+                         + '<span class="' + (LEVEL_CLASS[cz.level] || '') + '" '
+                         + 'style="color:inherit">[' + (LEVEL_NAME[cz.level] || cz.level) + ']</span>'
+                         + (cz.message ? ' <span class="fault-msg">' + esc(cz.message) + '</span>' : '')
+                         + '<div class="fault-chain">' + esc(cz.chain.join('  >  ')) + '</div>'
+                         + '</div>';
+                }
+                html += '</div>';
+            }
+            pathsEl.innerHTML = html;
+            var btn = document.getElementById('fault-toggle');
+            if (btn) {
+                btn.onclick = function () {
+                    expanded = !expanded;
+                    if (lastStatus) { renderPaths(lastStatus); }
+                };
+            }
+        }
+
+        // Status stops arriving when the aggregator dies. Nothing else notices,
+        // because the last chips would simply stay on screen looking healthy.
+        setInterval(function () {
+            if (!graph || !lastStatusMs) { return; }
+            if (Date.now() - lastStatusMs > 3000) {
+                setBridge('bridge-down', 'no status for '
+                    + Math.round((Date.now() - lastStatusMs) / 1000) + 's');
+                noteEl.textContent = 'The graph stopped updating. Chips below are the last '
+                    + 'known values, not current ones.';
+            } else if (ws && ws.readyState === WebSocket.OPEN) {
+                setBridge('bridge-up', 'rosbridge connected');
+            }
+        }, 1000);
+
+        connect();
+    })();
+    // =================== end mode availability strip ===================
+
         // Initial data fetch
         fetchData();
 
