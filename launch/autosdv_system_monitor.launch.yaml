@@ -2,12 +2,16 @@ launch:
 # Monitoring a sensor that is deliberately switched off reports it as failed.
 # Indoors that is the GNSS rows permanently red, which teaches operators to
 # ignore the monitor -- the opposite of what a monitor is for.
+#
+# autosdv.launch.yaml passes use_gnss as "" to mean "the suite's default", and
+# every suite in sensing.launch.xml defaults GNSS on; forwarding the raw "" made
+# the node's BOOL parameter refuse to start.
 - arg:
     name: use_gnss
     default: "true"
 - arg:
     name: monitor_gps
-    default: $(var use_gnss)
+    default: $(eval "'$(var use_gnss)' != 'false'")
 
 # The mode availability strip reads Autoware's diagnostic graph straight from
 # the browser over rosbridge. This node does not proxy it: the two graph topics
